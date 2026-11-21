@@ -7,7 +7,7 @@ browser-facing origin; no API hostname is embedded in the frontend bundle.
 Browser -> localhost:8080 -> gateway
                              |-- /api and /api/* -> busbar-api:8000
                              |-- /health        -> gateway health
-                             `-- everything else -> frontend:80
+                             `-- everything else -> frontend:8080
 ```
 
 The API owns `calc.py` and the existing `POST /api/calculate` contract. The
@@ -18,10 +18,45 @@ records so backend/frontend container replacement does not require rebuilding
 or restarting it. Brief errors during replacement are possible; this is not
 a zero-downtime orchestrator.
 
+## Version control
+
+The Git repository root is `F:\phase\phase-allocation`; `busbar` is a project
+directory inside it. Keep application code, Dockerfiles, Compose configuration,
+tests, dependency lockfiles, and deployment documentation in Git.
+
+The repository-root `.gitignore` excludes local environment files, secret
+directories, common private-key files, credential JSON files, and service-account
+JSON files at any depth. `.env.example` remains trackable and must contain only
+non-secret defaults or placeholders. The project `.gitignore` additionally
+excludes installed dependencies, build output, Python caches, and Playwright
+artifacts/authentication state.
+
+Review and stage only intended files, then inspect the staged diff before
+committing. Run these commands from the repository root:
+
+```powershell
+git status --short
+git diff
+git add -- .gitignore busbar/README.md
+git diff --cached
+git commit -m "Document version control and exclude local secrets" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+git push origin main
+```
+
+That example stages only the version-control setup. Stage reviewed application
+changes explicitly by path in a separate commit; do not blindly add every file.
+If Git is not on PowerShell's PATH, restart the terminal after configuring Git,
+or invoke `C:\Program Files\Git\cmd\git.exe` with PowerShell's `&` operator.
+
+Ignore rules do not remove already tracked files or detect secrets embedded in
+source code. Before each commit, review the staged content for credentials.
+If a secret was committed, revoke/rotate it immediately and coordinate history
+cleanup; deleting it in a later commit does not remove it from earlier commits.
+
 ## Run with Docker
 
 Prerequisites: Docker Desktop with Linux containers and Docker Compose v2.
-Run the following from this directory (`qa-ai-agent/busbar`):
+Run the following from this directory (`F:\phase\phase-allocation\busbar`):
 
 ```powershell
 docker compose config
@@ -51,6 +86,98 @@ The gateway health endpoint checks Nginx itself. Each application container
 has its own `/health` probe, and initial gateway startup waits for both.
 Use the smoke test to check end-to-end availability, including JSON errors,
 calculation output, JavaScript delivery, and SPA fallback.
+
+## Playwright UI and API testing
+
+The framework tests this application, not the Playwright example website.
+Use Node.js 22.13 or newer within the Node.js 22 release line (the CI runtime),
+Docker Desktop with Linux containers, and Compose v2. The default target is
+http://localhost:8080. Start the application before running the tests:
+
+```powershell
+cd F:\phase\phase-allocation\busbar
+npm.cmd ci
+npx.cmd playwright install chromium firefox webkit
+npm.cmd run validate
+docker compose config --quiet
+docker compose up --build -d --wait --wait-timeout 120
+npm.cmd run test:smoke
+npm.cmd run test:regression
+```
+
+The `.cmd` commands avoid Windows PowerShell script-execution-policy issues.
+On Linux/macOS, use `npm` and `npx`. Playwright does not automatically start or
+stop the local application; local tests use the already running deployment.
+For another local port, set both the deployment port and test origin:
+
+```powershell
+$env:HTTP_PORT = '8081'
+$env:BASE_URL = 'http://localhost:8081'
+docker compose up -d --wait
+npm.cmd run test:smoke
+```
+
+`BASE_URL` must be an HTTP(S) origin without credentials, a path, query, or
+fragment. Tests use synthetic data and may intentionally submit invalid
+requests; target a test environment, not a production system.
+
+| Command | Coverage |
+| --- | --- |
+| `npm run validate` | ESLint, strict TypeScript checking, configuration validation and test discovery |
+| `npm run test:smoke` | Five checks: health, known calculation/JSON contract, validation errors, default UI, balanced UI example |
+| `npm run test:regression` | 26 API checks once, plus eight UI scenarios on each of Chromium, Firefox, and WebKit (50 executions) |
+| `npm run test:api` | API tests only, without browser launches |
+| `npm run test:ui` | UI scenarios across all three browsers |
+| `npm run report` | Open the latest local HTML report |
+
+API regression covers all seven connection types, reactive leading/lagging
+behavior, cancellation, input limits, malformed JSON, unknown API routes, and
+missing frontend assets. UI regression covers real API-backed calculations,
+editing, adding/removing loads, invalid-input recovery, empty-load recovery,
+visible API failures, and SPA deep links. Only the failure/recovery scenario
+mocks an API response; normal calculation scenarios exercise the real backend.
+Accessible field names and named regions provide stable UI selectors.
+
+Tests run with two parallel workers. Failures retain browser screenshots and
+videos, traces, and attached browser console/page-error/request-failure logs.
+API-only tests retain request traces, but have no browser screenshots or video.
+HTML reports are written to `playwright-report`; attachments and JUnit XML are
+written to `test-results`. Those generated directories are ignored by Git.
+To inspect a failure, open the HTML report or use `npx playwright show-trace`
+with the failed test's `trace.zip`.
+
+### GitHub Actions quality gate
+
+The workflow lives at the repository root in
+[`../.github/workflows/playwright.yml`](../.github/workflows/playwright.yml).
+GitHub does not discover workflows under `busbar/.github`.
+
+- Pull requests targeting `main`, `develop`, or `release/**` run smoke tests.
+- Pushes to those branches run the full regression suite.
+- Nightly runs at 02:00 UTC run full regression on the default branch.
+- Manual runs let you choose smoke or regression.
+
+The workflow checks out the repository, sets up Node.js/Python, restores
+dependencies with `npm ci`, installs the suite's browsers, validates lint/types/
+test discovery and Compose configuration, and runs backend pytest tests.
+It builds and starts the Docker application, verifies runtime container
+hardening, and runs Playwright. It captures Docker logs, uploads HTML/JUnit
+reports and available failure evidence even after failures, and stops the
+application. Artifacts are retained for 14 days. Setup failures can have no
+test artifacts; their diagnosis is in the Actions step logs. Treat reports,
+traces, and recordings as potentially sensitive and do not use real credentials.
+
+CI retries a failed test once for diagnostic evidence, but
+`failOnFlakyTests` makes the job fail even if that retry passes. Validation
+failures and test failures return nonzero exit codes; they are not ignored.
+
+Commit and push the workflow, framework, lockfile, and application changes to
+activate CI. Then configure a GitHub branch ruleset/branch protection for the
+protected branches, requiring the `UI and API quality gate` status check
+(select its actual name after the first Actions run). Disable bypasses where
+appropriate. A workflow failure alone does not prevent merging unless GitHub
+requires that check. Nightly schedules only become active after the workflow
+is present on the repository's default branch.
 
 ## Independent updates
 
@@ -147,6 +274,49 @@ location /api/reports/ {
    data through explicit API contracts rather than shared database tables.
 
 ## Deployment limits
+
+### Local container hardening
+
+All runtime containers run as non-root users. The gateway and frontend use
+`nginxinc/nginx-unprivileged` and listen on container port 8080; the browser
+URL remains http://localhost:8080. Each container has a read-only root
+filesystem, all Linux capabilities dropped, and `no-new-privileges` enabled.
+Only `/tmp` is writable through a bounded 64 MiB temporary filesystem mounted
+with `noexec` and `nosuid`; its contents are disposable. Nginx uses it for its
+PID and temporary request files. Do not add privileged mode or mount the
+Docker socket to these services.
+
+Docker's local log driver rotates logs at 10 MiB per file and retains three
+files per container. Health checks and `deploy/smoke-test.ps1` check local
+availability; they are not continuous external monitoring or alerting.
+Run `deploy/security-test.ps1` to verify runtime isolation and published ports.
+
+Dockerfiles copy only explicitly required application files. Both build
+contexts exclude `.env*`; this is an additional safeguard, not a substitute
+for secret management. Never put credentials in source, image layers, build
+arguments, or frontend JavaScript. If a future service needs a secret, mount
+it as a read-only secret file and make that service explicitly read it.
+
+Refresh base images regularly, rebuild, and verify before accepting updates:
+
+```powershell
+docker compose pull gateway
+docker compose build --pull
+docker compose up -d --wait
+.\deploy\smoke-test.ps1
+.\deploy\security-test.ps1
+```
+
+These commands refresh the configured image tags, not newer version tags or
+application dependency pins. Review supported upstream versions and security
+advisories, update image tags and dependency manifests/lockfiles deliberately,
+and run the backend tests and frontend build before deployment. No claim of
+being vulnerability-free is made by these runtime restrictions.
+
+The current calculator has no persistent server-side user data or database.
+Keep source/configuration in backed-up version control without secrets. Add
+data backups and test restoration if persistent storage is introduced;
+container images and temporary files are not data backups.
 
 This is a local/single-server deployment foundation, not a fully secured
 public platform. Before public deployment, explicitly configure the listening

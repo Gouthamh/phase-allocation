@@ -1,0 +1,554 @@
+[1mdiff --git a/.github/workflows/playwright.yml b/.github/workflows/playwright.yml[m
+[1mnew file mode 100644[m
+[1mindex 0000000..5a5d5c7[m
+[1m--- /dev/null[m
+[1m+++ b/.github/workflows/playwright.yml[m
+[36m@@ -0,0 +1,115 @@[m
+[32m+[m[32mname: Phase allocation tests[m
+[32m+[m
+[32m+[m[32mon:[m
+[32m+[m[32m  pull_request:[m
+[32m+[m[32m    branches: [main, develop, 'release/**'][m
+[32m+[m[32m  push:[m
+[32m+[m[32m    branches: [main, develop, 'release/**'][m
+[32m+[m[32m  schedule:[m
+[32m+[m[32m    - cron: '0 2 * * *'[m
+[32m+[m[32m  workflow_dispatch:[m
+[32m+[m[32m    inputs:[m
+[32m+[m[32m      suite:[m
+[32m+[m[32m        description: Test suite[m
+[32m+[m[32m        type: choice[m
+[32m+[m[32m        options: [smoke, regression][m
+[32m+[m[32m        default: regression[m
+[32m+[m
+[32m+[m[32mpermissions:[m
+[32m+[m[32m  contents: read[m
+[32m+[m
+[32m+[m[32mconcurrency:[m
+[32m+[m[32m  group: phase-tests-${{ github.workflow }}-${{ github.ref }}[m
+[32m+[m[32m  cancel-in-progress: ${{ github.event_name == 'pull_request' }}[m
+[32m+[m
+[32m+[m[32mjobs:[m
+[32m+[m[32m  test:[m
+[32m+[m[32m    name: UI and API quality gate[m
+[32m+[m[32m    runs-on: ubuntu-latest[m
+[32m+[m[32m    timeout-minutes: 25[m
+[32m+[m[32m    defaults:[m
+[32m+[m[32m      run:[m
+[32m+[m[32m        working-directory: busbar[m
+[32m+[m[32m    env:[m
+[32m+[m[32m      CI: 'true'[m
+[32m+[m[32m      BASE_URL: http://localhost:8080[m
+[32m+[m[32m    steps:[m
+[32m+[m[32m      - uses: actions/checkout@v4[m
+[32m+[m[32m      - uses: actions/setup-node@v4[m
+[32m+[m[32m        with:[m
+[32m+[m[32m          node-version: '22'[m
+[32m+[m[32m          cache: npm[m
+[32m+[m[32m          cache-dependency-path: busbar/package-lock.json[m
+[32m+[m[32m      - uses: actions/setup-python@v5[m
+[32m+[m[32m        with:[m
+[32m+[m[32m          python-version: '3.13'[m
+[32m+[m[32m          cache: pip[m
+[32m+[m[32m          cache-dependency-path: |[m
+[32m+[m[32m            busbar/backend/requirements.txt[m
+[32m+[m[32m            busbar/backend/requirements-dev.txt[m
+[32m+[m[32m      - name: Choose suite[m
+[32m+[m[32m        id: suite[m
+[32m+[m[32m        env:[m
+[32m+[m[32m          EVENT_NAME: ${{ github.event_name }}[m
+[32m+[m[32m          REQUESTED_SUITE: ${{ inputs.suite }}[m
+[32m+[m[32m        run: |[m
+[32m+[m[32m          suite=regression[m
+[32m+[m[32m          if [ "$EVENT_NAME" = "pull_request" ]; then[m
+[32m+[m[32m            suite=smoke[m
+[32m+[m[32m          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then[m
+[32m+[m[32m            suite="$REQUESTED_SUITE"[m
+[32m+[m[32m          fi[m
+[32m+[m[32m          echo "suite=$suite" >> "$GITHUB_OUTPUT"[m
+[32m+[m[32m      - name: Restore test dependencies[m
+[32m+[m[32m        run: npm ci[m
+[32m+[m[32m      - name: Install Playwright browsers[m
+[32m+[m[32m        env:[m
+[32m+[m[32m          SUITE: ${{ steps.suite.outputs.suite }}[m
+[32m+[m[32m        run: |[m
+[32m+[m[32m          if [ "$SUITE" = "smoke" ]; then[m
+[32m+[m[32m            npx playwright install --with-deps chromium[m
+[32m+[m[32m          else[m
+[32m+[m[32m            npx playwright install --with-deps chromium firefox webkit[m
+[32m+[m[32m          fi[m
+[32m+[m[32m      - name: Lint, type-check, and validate test discovery[m
+[32m+[m[32m        run: npm run validate[m
+[32m+[m[32m      - name: Validate Compose configuration[m
+[32m+[m[32m        run: docker compose config --quiet[m
+[32m+[m[32m      - name: Run backend unit and contract tests[m
+[32m+[m[32m        run: |[m
+[32m+[m[32m          python -m pip install -r backend/requirements-dev.txt[m
+[32m+[m[32m          python -m pytest backend/tests -q[m
+[32m+[m[32m      - name: Build and start application[m
+[32m+[m[32m        id: application[m
+[32m+[m[32m        run: docker compose up --build -d --wait --wait-timeout 120[m
+[32m+[m[32m      - name: Verify container hardening[m
+[32m+[m[32m        shell: pwsh[m
+[32m+[m[32m        run: ./deploy/security-test.ps1[m
+[32m+[m[32m      - name: Run UI and API tests[m
+[32m+[m[32m        env:[m
+[32m+[m[32m          SUITE: ${{ steps.suite.outputs.suite }}[m
+[32m+[m[32m        run: |[m
+[32m+[m[32m          if [ "$SUITE" = "smoke" ]; then[m
+[32m+[m[32m            npm run test:smoke[m
+[32m+[m[32m          else[m
+[32m+[m[32m            npm run test:regression[m
+[32m+[m[32m          fi[m
+[32m+[m[32m      - name: Capture application logs[m
+[32m+[m[32m        if: ${{ always() && steps.application.outcome != 'skipped' }}[m
+[32m+[m[32m        run: |[m
+[32m+[m[32m          mkdir -p test-results[m
+[32m+[m[32m          docker compose logs --no-color > test-results/docker.log 2>&1[m
+[32m+[m[32m          docker compose ps --all > test-results/containers.txt[m
+[32m+[m[32m      - name: Upload HTML report and failure evidence[m
+[32m+[m[32m        if: ${{ always() }}[m
+[32m+[m[32m        uses: actions/upload-artifact@v4[m
+[32m+[m[32m        with:[m
+[32m+[m[32m          name: phase-tests-${{ steps.suite.outputs.suite || 'setup' }}-${{ github.run_attempt }}[m
+[32m+[m[32m          path: |[m
+[32m+[m[32m            busbar/playwright-report/[m
+[32m+[m[32m            busbar/test-results/[m
+[32m+[m[32m          retention-days: 14[m
+[32m+[m[32m          if-no-files-found: warn[m
+[32m+[m[32m      - name: Stop application[m
+[32m+[m[32m        if: ${{ always() && steps.application.outcome != 'skipped' }}[m
+[32m+[m[32m        run: docker compose down[m
+[1mdiff --git a/.gitignore b/.gitignore[m
+[1mnew file mode 100644[m
+[1mindex 0000000..79740ad[m
+[1m--- /dev/null[m
+[1m+++ b/.gitignore[m
+[36m@@ -0,0 +1,13 @@[m
+[32m+[m[32m# Local secrets; examples must contain placeholders only.[m
+[32m+[m[32m.env[m
+[32m+[m[32m.env.*[m
+[32m+[m[32m!.env.example[m
+[32m+[m[32m.secrets/[m
+[32m+[m[32msecrets/[m
+[32m+[m[32m*.key[m
+[32m+[m[32m*.p12[m
+[32m+[m[32m*.pfx[m
+[32m+[m[32mid_rsa[m
+[32m+[m[32mid_ed25519[m
+[32m+[m[32mcredentials.json[m
+[32m+[m[32mservice-account*.json[m
+[1mdiff --git a/busbar/.gitignore b/busbar/.gitignore[m
+[1mindex b26cfea..808e25d 100644[m
+[1m--- a/busbar/.gitignore[m
+[1m+++ b/busbar/.gitignore[m
+[36m@@ -6,4 +6,12 @@[m
+ **/__pycache__/[m
+ **/.pytest_cache/[m
+ **/.venv/[m
+[31m-*.pyc[m
+\ No newline at end of file[m
+[32m+[m[32m*.pyc[m
+[32m+[m
+[32m+[m[32m# Playwright[m
+[32m+[m[32mnode_modules/[m
+[32m+[m[32m/test-results/[m
+[32m+[m[32m/playwright-report/[m
+[32m+[m[32m/blob-report/[m
+[32m+[m[32m/playwright/.cache/[m
+[32m+[m[32m/playwright/.auth/[m
+[1mdiff --git a/busbar/README.md b/busbar/README.md[m
+[1mindex 80c8170..9dfa2ac 100644[m
+[1m--- a/busbar/README.md[m
+[1m+++ b/busbar/README.md[m
+[36m@@ -7,7 +7,7 @@[m [mbrowser-facing origin; no API hostname is embedded in the frontend bundle.[m
+ Browser -> localhost:8080 -> gateway[m
+                              |-- /api and /api/* -> busbar-api:8000[m
+                              |-- /health        -> gateway health[m
+[31m-                             `-- everything else -> frontend:80[m
+[32m+[m[32m                             `-- everything else -> frontend:8080[m
+ ```[m
+ [m
+ The API owns `calc.py` and the existing `POST /api/calculate` contract. The[m
+[36m@@ -18,10 +18,45 @@[m [mrecords so backend/frontend container replacement does not require rebuilding[m
+ or restarting it. Brief errors during replacement are possible; this is not[m
+ a zero-downtime orchestrator.[m
+ [m
+[32m+[m[32m## Version control[m
+[32m+[m
+[32m+[m[32mThe Git repository root is `F:\phase\phase-allocation`; `busbar` is a project[m
+[32m+[m[32mdirectory inside it. Keep application code, Dockerfiles, Compose configuration,[m
+[32m+[m[32mtests, dependency lockfiles, and deployment documentation in Git.[m
+[32m+[m
+[32m+[m[32mThe repository-root `.gitignore` excludes local environment files, secret[m
+[32m+[m[32mdirectories, common private-key files, credential JSON files, and service-account[m
+[32m+[m[32mJSON files at any depth. `.env.example` remains trackable and must contain only[m
+[32m+[m[32mnon-secret defaults or placeholders. The project `.gitignore` additionally[m
+[32m+[m[32mexcludes installed dependencies, build output, Python caches, and Playwright[m
+[32m+[m[32martifacts/authentication state.[m
+[32m+[m
+[32m+[m[32mReview and stage only intended files, then inspect the staged diff before[m
+[32m+[m[32mcommitting. Run these commands from the repository root:[m
+[32m+[m
+[32m+[m[32m```powershell[m
+[32m+[m[32mgit status --short[m
+[32m+[m[32mgit diff[m
+[32m+[m[32mgit add -- .gitignore busbar/README.md[m
+[32m+[m[32mgit diff --cached[m
+[32m+[m[32mgit commit -m "Document version control and exclude local secrets" -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"[m
+[32m+[m[32mgit push origin main[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mThat example stages only the version-control setup. Stage reviewed application[m
+[32m+[m[32mchanges explicitly by path in a separate commit; do not blindly add every file.[m
+[32m+[m[32mIf Git is not on PowerShell's PATH, restart the terminal after configuring Git,[m
+[32m+[m[32mor invoke `C:\Program Files\Git\cmd\git.exe` with PowerShell's `&` operator.[m
+[32m+[m
+[32m+[m[32mIgnore rules do not remove already tracked files or detect secrets embedded in[m
+[32m+[m[32msource code. Before each commit, review the staged content for credentials.[m
+[32m+[m[32mIf a secret was committed, revoke/rotate it immediately and coordinate history[m
+[32m+[m[32mcleanup; deleting it in a later commit does not remove it from earlier commits.[m
+[32m+[m
+ ## Run with Docker[m
+ [m
+ Prerequisites: Docker Desktop with Linux containers and Docker Compose v2.[m
+[31m-Run the following from this directory (`qa-ai-agent/busbar`):[m
+[32m+[m[32mRun the following from this directory (`F:\phase\phase-allocation\busbar`):[m
+ [m
+ ```powershell[m
+ docker compose config[m
+[36m@@ -52,6 +87,98 @@[m [mhas its own `/health` probe, and initial gateway startup waits for both.[m
+ Use the smoke test to check end-to-end availability, including JSON errors,[m
+ calculation output, JavaScript delivery, and SPA fallback.[m
+ [m
+[32m+[m[32m## Playwright UI and API testing[m
+[32m+[m
+[32m+[m[32mThe framework tests this application, not the Playwright example website.[m
+[32m+[m[32mUse Node.js 22.13 or newer within the Node.js 22 release line (the CI runtime),[m
+[32m+[m[32mDocker Desktop with Linux containers, and Compose v2. The default target is[m
+[32m+[m[32mhttp://localhost:8080. Start the application before running the tests:[m
+[32m+[m
+[32m+[m[32m```powershell[m
+[32m+[m[32mcd F:\phase\phase-allocation\busbar[m
+[32m+[m[32mnpm.cmd ci[m
+[32m+[m[32mnpx.cmd playwright install chromium firefox webkit[m
+[32m+[m[32mnpm.cmd run validate[m
+[32m+[m[32mdocker compose config --quiet[m
+[32m+[m[32mdocker compose up --build -d --wait --wait-timeout 120[m
+[32m+[m[32mnpm.cmd run test:smoke[m
+[32m+[m[32mnpm.cmd run test:regression[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mThe `.cmd` commands avoid Windows PowerShell script-execution-policy issues.[m
+[32m+[m[32mOn Linux/macOS, use `npm` and `npx`. Playwright does not automatically start or[m
+[32m+[m[32mstop the local application; local tests use the already running deployment.[m
+[32m+[m[32mFor another local port, set both the deployment port and test origin:[m
+[32m+[m
+[32m+[m[32m```powershell[m
+[32m+[m[32m$env:HTTP_PORT = '8081'[m
+[32m+[m[32m$env:BASE_URL = 'http://localhost:8081'[m
+[32m+[m[32mdocker compose up -d --wait[m
+[32m+[m[32mnpm.cmd run test:smoke[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32m`BASE_URL` must be an HTTP(S) origin without credentials, a path, query, or[m
+[32m+[m[32mfragment. Tests use synthetic data and may intentionally submit invalid[m
+[32m+[m[32mrequests; target a test environment, not a production system.[m
+[32m+[m
+[32m+[m[32m| Command | Coverage |[m
+[32m+[m[32m| --- | --- |[m
+[32m+[m[32m| `npm run validate` | ESLint, strict TypeScript checking, configuration validation and test discovery |[m
+[32m+[m[32m| `npm run test:smoke` | Five checks: health, known calculation/JSON contract, validation errors, default UI, balanced UI example |[m
+[32m+[m[32m| `npm run test:regression` | 26 API checks once, plus eight UI scenarios on each of Chromium, Firefox, and WebKit (50 executions) |[m
+[32m+[m[32m| `npm run test:api` | API tests only, without browser launches |[m
+[32m+[m[32m| `npm run test:ui` | UI scenarios across all three browsers |[m
+[32m+[m[32m| `npm run report` | Open the latest local HTML report |[m
+[32m+[m
+[32m+[m[32mAPI regression covers all seven connection types, reactive leading/lagging[m
+[32m+[m[32mbehavior, cancellation, input limits, malformed JSON, unknown API routes, and[m
+[32m+[m[32mmissing frontend assets. UI regression covers real API-backed calculations,[m
+[32m+[m[32mediting, adding/removing loads, invalid-input recovery, empty-load recovery,[m
+[32m+[m[32mvisible API failures, and SPA deep links. Only the failure/recovery scenario[m
+[32m+[m[32mmocks an API response; normal calculation scenarios exercise the real backend.[m
+[32m+[m[32mAccessible field names and named regions provide stable UI selectors.[m
+[32m+[m
+[32m+[m[32mTests run with two parallel workers. Failures retain browser screenshots and[m
+[32m+[m[32mvideos, traces, and attached browser console/page-error/request-failure logs.[m
+[32m+[m[32mAPI-only tests retain request traces, but have no browser screenshots or video.[m
+[32m+[m[32mHTML reports are written to `playwright-report`; attachments and JUnit XML are[m
+[32m+[m[32mwritten to `test-results`. Those generated directories are ignored by Git.[m
+[32m+[m[32mTo inspect a failure, open the HTML report or use `npx playwright show-trace`[m
+[32m+[m[32mwith the failed test's `trace.zip`.[m
+[32m+[m
+[32m+[m[32m### GitHub Actions quality gate[m
+[32m+[m
+[32m+[m[32mThe workflow lives at the repository root in[m
+[32m+[m[32m[`../.github/workflows/playwright.yml`](../.github/workflows/playwright.yml).[m
+[32m+[m[32mGitHub does not discover workflows under `busbar/.github`.[m
+[32m+[m
+[32m+[m[32m- Pull requests targeting `main`, `develop`, or `release/**` run smoke tests.[m
+[32m+[m[32m- Pushes to those branches run the full regression suite.[m
+[32m+[m[32m- Nightly runs at 02:00 UTC run full regression on the default branch.[m
+[32m+[m[32m- Manual runs let you choose smoke or regression.[m
+[32m+[m
+[32m+[m[32mThe workflow checks out the repository, sets up Node.js/Python, restores[m
+[32m+[m[32mdependencies with `npm ci`, installs the suite's browsers, validates lint/types/[m
+[32m+[m[32mtest discovery and Compose configuration, and runs backend pytest tests.[m
+[32m+[m[32mIt builds and starts the Docker application, verifies runtime container[m
+[32m+[m[32mhardening, and runs Playwright. It captures Docker logs, uploads HTML/JUnit[m
+[32m+[m[32mreports and available failure evidence even after failures, and stops the[m
+[32m+[m[32mapplication. Artifacts are retained for 14 days. Setup failures can have no[m
+[32m+[m[32mtest artifacts; their diagnosis is in the Actions step logs. Treat reports,[m
+[32m+[m[32mtraces, and recordings as potentially sensitive and do not use real credentials.[m
+[32m+[m
+[32m+[m[32mCI retries a failed test once for diagnostic evidence, but[m
+[32m+[m[32m`failOnFlakyTests` makes the job fail even if that retry passes. Validation[m
+[32m+[m[32mfailures and test failures return nonzero exit codes; they are not ignored.[m
+[32m+[m
+[32m+[m[32mCommit and push the workflow, framework, lockfile, and application changes to[m
+[32m+[m[32mactivate CI. Then configure a GitHub branch ruleset/branch protection for the[m
+[32m+[m[32mprotected branches, requiring the `UI and API quality gate` status check[m
+[32m+[m[32m(select its actual name after the first Actions run). Disable bypasses where[m
+[32m+[m[32mappropriate. A workflow failure alone does not prevent merging unless GitHub[m
+[32m+[m[32mrequires that check. Nightly schedules only become active after the workflow[m
+[32m+[m[32mis present on the repository's default branch.[m
+[32m+[m
+ ## Independent updates[m
+ [m
+ ```powershell[m
+[36m@@ -148,6 +275,49 @@[m [mlocation /api/reports/ {[m
+ [m
+ ## Deployment limits[m
+ [m
+[32m+[m[32m### Local container hardening[m
+[32m+[m
+[32m+[m[32mAll runtime containers run as non-root users. The gateway and frontend use[m
+[32m+[m[32m`nginxinc/nginx-unprivileged` and listen on container port 8080; the browser[m
+[32m+[m[32mURL remains http://localhost:8080. Each container has a read-only root[m
+[32m+[m[32mfilesystem, all Linux capabilities dropped, and `no-new-privileges` enabled.[m
+[32m+[m[32mOnly `/tmp` is writable through a bounded 64 MiB temporary filesystem mounted[m
+[32m+[m[32mwith `noexec` and `nosuid`; its contents are disposable. Nginx uses it for its[m
+[32m+[m[32mPID and temporary request files. Do not add privileged mode or mount the[m
+[32m+[m[32mDocker socket to these services.[m
+[32m+[m
+[32m+[m[32mDocker's local log driver rotates logs at 10 MiB per file and retains three[m
+[32m+[m[32mfiles per container. Health checks and `deploy/smoke-test.ps1` check local[m
+[32m+[m[32mavailability; they are not continuous external monitoring or alerting.[m
+[32m+[m[32mRun `deploy/security-test.ps1` to verify runtime isolation and published ports.[m
+[32m+[m
+[32m+[m[32mDockerfiles copy only explicitly required application files. Both build[m
+[32m+[m[32mcontexts exclude `.env*`; this is an additional safeguard, not a substitute[m
+[32m+[m[32mfor secret management. Never put credentials in source, image layers, build[m
+[32m+[m[32marguments, or frontend JavaScript. If a future service needs a secret, mount[m
+[32m+[m[32mit as a read-only secret file and make that service explicitly read it.[m
+[32m+[m
+[32m+[m[32mRefresh base images regularly, rebuild, and verify before accepting updates:[m
+[32m+[m
+[32m+[m[32m```powershell[m
+[32m+[m[32mdocker compose pull gateway[m
+[32m+[m[32mdocker compose build --pull[m
+[32m+[m[32mdocker compose up -d --wait[m
+[32m+[m[32m.\deploy\smoke-test.ps1[m
+[32m+[m[32m.\deploy\security-test.ps1[m
+[32m+[m[32m```[m
+[32m+[m
+[32m+[m[32mThese commands refresh the configured image tags, not newer version tags or[m
+[32m+[m[32mapplication dependency pins. Review supported upstream versions and security[m
+[32m+[m[32madvisories, update image tags and dependency manifests/lockfiles deliberately,[m
+[32m+[m[32mand run the backend tests and frontend build before deployment. No claim of[m
+[32m+[m[32mbeing vulnerability-free is made by these runtime restrictions.[m
+[32m+[m
+[32m+[m[32mThe current calculator has no persistent server-side user data or database.[m
+[32m+[m[32mKeep source/configuration in backed-up version control without secrets. Add[m
+[32m+[m[32mdata backups and test restoration if persistent storage is introduced;[m
+[32m+[m[32mcontainer images and temporary files are not data backups.[m
+[32m+[m
+ This is a local/single-server deployment foundation, not a fully secured[m
+ public platform. Before public deployment, explicitly configure the listening[m
+ interface, TLS, authentication/authorization, resource limits, monitoring,[m
+[1mdiff --git a/busbar/compose.yaml b/busbar/compose.yaml[m
+[1mindex 22d583b..e0ee372 100644[m
+[1m--- a/busbar/compose.yaml[m
+[1m+++ b/busbar/compose.yaml[m
+[36m@@ -2,9 +2,9 @@[m [mname: busbar[m
+ [m
+ services:[m
+   gateway:[m
+[31m-    image: nginx:1.28-alpine[m
+[32m+[m[32m    image: nginxinc/nginx-unprivileged:1.28-alpine[m
+     ports:[m
+[31m-      - "127.0.0.1:${HTTP_PORT:-8080}:80"[m
+[32m+[m[32m      - "127.0.0.1:${HTTP_PORT:-8080}:8080"[m
+     volumes:[m
+       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro[m
+     depends_on:[m
+[36m@@ -13,12 +13,24 @@[m [mservices:[m
+       busbar-api:[m
+         condition: service_healthy[m
+     healthcheck:[m
+[31m-      test: [ "CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health" ][m
+[32m+[m[32m      test: [ "CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health" ][m
+       interval: 10s[m
+       timeout: 3s[m
+       start_period: 5s[m
+       retries: 3[m
+     restart: unless-stopped[m
+[32m+[m[32m    read_only: true[m
+[32m+[m[32m    tmpfs:[m
+[32m+[m[32m      - /tmp:rw,noexec,nosuid,size=64m,mode=1777[m
+[32m+[m[32m    cap_drop:[m
+[32m+[m[32m      - ALL[m
+[32m+[m[32m    security_opt:[m
+[32m+[m[32m      - no-new-privileges:true[m
+[32m+[m[32m    logging:[m
+[32m+[m[32m      driver: local[m
+[32m+[m[32m      options:[m
+[32m+[m[32m        max-size: "10m"[m
+[32m+[m[32m        max-file: "3"[m
+     networks:[m
+       - application[m
+ [m
+[36m@@ -26,6 +38,18 @@[m [mservices:[m
+     build:[m
+       context: ./frontend[m
+     restart: unless-stopped[m
+[32m+[m[32m    read_only: true[m
+[32m+[m[32m    tmpfs:[m
+[32m+[m[32m      - /tmp:rw,noexec,nosuid,size=64m,mode=1777[m
+[32m+[m[32m    cap_drop:[m
+[32m+[m[32m      - ALL[m
+[32m+[m[32m    security_opt:[m
+[32m+[m[32m      - no-new-privileges:true[m
+[32m+[m[32m    logging:[m
+[32m+[m[32m      driver: local[m
+[32m+[m[32m      options:[m
+[32m+[m[32m        max-size: "10m"[m
+[32m+[m[32m        max-file: "3"[m
+     networks:[m
+       - application[m
+ [m
+[36m@@ -33,6 +57,18 @@[m [mservices:[m
+     build:[m
+       context: ./backend[m
+     restart: unless-stopped[m
+[32m+[m[32m    read_only: true[m
+[32m+[m[32m    tmpfs:[m
+[32m+[m[32m      - /tmp:rw,noexec,nosuid,size=64m,mode=1777[m
+[32m+[m[32m    cap_drop:[m
+[32m+[m[32m      - ALL[m
+[32m+[m[32m    security_opt:[m
+[32m+[m[32m      - no-new-privileges:true[m
+[32m+[m[32m    logging:[m
+[32m+[m[32m      driver: local[m
+[32m+[m[32m      options:[m
+[32m+[m[32m        max-size: "10m"[m
+[32m+[m[32m        max-file: "3"[m
+     networks:[m
+       - application[m
+ [m
+[1mdiff --git a/busbar/deploy/nginx.conf b/busbar/deploy/nginx.conf[m
+[1mindex 2e344ab..5bb0c3e 100644[m
+[1m--- a/busbar/deploy/nginx.conf[m
+[1m+++ b/busbar/deploy/nginx.conf[m
+[36m@@ -7,11 +7,11 @@[m [mupstream busbar_api {[m
+ [m
+ upstream frontend_app {[m
+     zone frontend_app 64k;[m
+[31m-    server frontend:80 resolve;[m
+[32m+[m[32m    server frontend:8080 resolve;[m
+ }[m
+ [m
+ server {[m
+[31m-    listen 80;[m
+[32m+[m[32m    listen 8080;[m
+     server_name _;[m
+     client_max_body_size 1m;[m
+ [m
+[1mdiff --git a/busbar/deploy/security-test.ps1 b/busbar/deploy/security-test.ps1[m
+[1mnew file mode 100644[m
+[1mindex 0000000..f37c4fa[m
+[1m--- /dev/null[m
+[1m+++ b/busbar/deploy/security-test.ps1[m
+[36m@@ -0,0 +1,70 @@[m
+[32m+[m[32m$ErrorActionPreference = "Stop"[m
+[32m+[m
+[32m+[m[32mPush-Location (Split-Path $PSScriptRoot -Parent)[m
+[32m+[m[32mtry {[m
+[32m+[m[32m    foreach ($service in @('gateway', 'frontend', 'busbar-api')) {[m
+[32m+[m[32m        $containerId = docker compose ps -q $service[m
+[32m+[m[32m        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($containerId)) {[m
+[32m+[m[32m            throw "No running container found for $service"[m
+[32m+[m[32m        }[m
+[32m+[m[32m        $inspection = docker inspect $containerId[m
+[32m+[m[32m        if ($LASTEXITCODE -ne 0) { throw "Cannot inspect $service" }[m
+[32m+[m[32m        $container = ($inspection | ConvertFrom-Json)[0][m
+[32m+[m[32m        $config = $container.HostConfig[m
+[32m+[m[32m        if (-not $container.State.Running -or $container.State.Health.Status -ne 'healthy') {[m
+[32m+[m[32m            throw "$service is not running and healthy"[m
+[32m+[m[32m        }[m
+[32m+[m[32m        if ($config.Privileged -or -not $config.ReadonlyRootfs -or[m
+[32m+[m[32m            $config.CapDrop -notcontains 'ALL' -or $config.CapAdd.Count -gt 0 -or[m
+[32m+[m[32m            $config.SecurityOpt -notcontains 'no-new-privileges:true') {[m
+[32m+[m[32m            throw "$service is missing required runtime restrictions"[m
+[32m+[m[32m        }[m
+[32m+[m[32m        if ($config.LogConfig.Type -ne 'local' -or[m
+[32m+[m[32m            $config.LogConfig.Config.'max-size' -ne '10m' -or[m
+[32m+[m[32m            $config.LogConfig.Config.'max-file' -ne '3') {[m
+[32m+[m[32m            throw "$service is missing bounded log rotation"[m
+[32m+[m[32m        }[m
+[32m+[m[32m        $temporaryStorage = $config.Tmpfs.'/tmp'[m
+[32m+[m[32m        if ([string]::IsNullOrWhiteSpace($temporaryStorage)) {[m
+[32m+[m[32m            throw "$service is missing bounded temporary storage"[m
+[32m+[m[32m        }[m
+[32m+[m[32m        foreach ($option in @('noexec', 'nosuid', 'size=64m')) {[m
+[32m+[m[32m            if ($temporaryStorage.Split(',') -notcontains $option) {[m
+[32m+[m[32m                throw "$service is missing temporary-storage restriction $option"[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m        $uid = docker compose exec -T $service id -u[m
+[32m+[m[32m        if ($LASTEXITCODE -ne 0 -or $uid -notmatch '^\d+$' -or [int]$uid -eq 0) {[m
+[32m+[m[32m            throw "$service is not running as a non-root user"[m
+[32m+[m[32m        }[m
+[32m+[m[32m        $processStatus = docker compose exec -T $service cat /proc/1/status[m
+[32m+[m[32m        if ($LASTEXITCODE -ne 0) { throw "Cannot read main-process privileges for $service" }[m
+[32m+[m[32m        $processStatus = $processStatus -join "`n"[m
+[32m+[m[32m        if ($processStatus -notmatch '(?m)^Uid:\s+[1-9]\d*\s+[1-9]\d*\s+[1-9]\d*\s+[1-9]\d*\s*$' -or[m
+[32m+[m[32m            $processStatus -notmatch '(?m)^CapEff:\s+0+\s*$' -or[m
+[32m+[m[32m            $processStatus -notmatch '(?m)^NoNewPrivs:\s+1\s*$') {[m
+[32m+[m[32m            throw "$service main process is not non-root with zero effective capabilities and no-new-privileges"[m
+[32m+[m[32m        }[m
+[32m+[m[32m        $bindings = @($config.PortBindings.PSObject.Properties)[m
+[32m+[m[32m        if ($service -eq 'gateway') {[m
+[32m+[m[32m            if ($bindings.Count -ne 1 -or $bindings[0].Name -ne '8080/tcp' -or[m
+[32m+[m[32m                @($bindings[0].Value).Count -ne 1 -or[m
+[32m+[m[32m                $bindings[0].Value[0].HostIp -ne '127.0.0.1') {[m
+[32m+[m[32m                throw 'Only gateway port 8080 may be published, on localhost'[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m        elseif ($bindings.Count -ne 0) {[m
+[32m+[m[32m            throw "$service must not publish host ports"[m
+[32m+[m[32m        }[m
+[32m+[m[32m        foreach ($mount in $container.Mounts) {[m
+[32m+[m[32m            if ($mount.Type -ne 'bind' -or $service -ne 'gateway' -or $mount.RW -or[m
+[32m+[m[32m                $mount.Destination -ne '/etc/nginx/conf.d/default.conf') {[m
+[32m+[m[32m                throw "$service has an unexpected persistent mount"[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m        Write-Host "PASS: runtime hardening for $service (UID $uid)"[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[32m+[m[32mfinally {[m
+[32m+[m[32m    Pop-Location[m
+[32m+[m[32m}[m
+[1mdiff --git a/busbar/eslint.config.mjs b/busbar/eslint.config.mjs[m
+[1mnew file mode 100644[m
+[1mindex 0000000..c097832[m
+[1m--- /dev/null[m
+[1m+++ b/busbar/eslint.config.mjs[m
+[36m@@ -0,0 +1,12 @@[m
+[32m+[m[32mimport js from '@eslint/js';[m
+[32m+[m[32mimport playwright from 'eslint-plugin-playwright';[m
+[32m+[m[32mimport tseslint from 'typescript-eslint';[m
+[32m+[m
+[32m+[m[32mexport default tseslint.config([m
+[32m+[m[32m  js.configs.r
