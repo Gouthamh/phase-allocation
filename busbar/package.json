@@ -1,0 +1,31 @@
+{
+  "name": "busbar",
+  "version": "1.0.0",
+  "description": "UI and API smoke/regression testing for the busbar phase calculator.",
+  "private": true,
+  "scripts": {
+    "lint": "eslint tests playwright.config.ts eslint.config.mjs --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "validate:config": "playwright test --list",
+    "validate": "npm run lint && npm run typecheck && npm run validate:config",
+    "test": "playwright test --grep @regression",
+    "test:smoke": "playwright test --grep @smoke --project api --project chromium",
+    "test:regression": "playwright test --grep @regression",
+    "test:api": "playwright test --project api",
+    "test:ui": "playwright test --project chromium --project firefox --project webkit",
+    "report": "playwright show-report"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.0.0",
+    "eslint-plugin-playwright": "^2.0.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.0.0"
+  }
+}

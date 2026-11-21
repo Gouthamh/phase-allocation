@@ -41,28 +41,28 @@ export default function LoadsForm({ loads, setLoads }) {
                     {loads.map((l, i) => (
                         <tr key={i}>
                             <td>
-                                <input value={l.name} maxLength={50}
+                                <input aria-label={`Load ${i + 1} name`} value={l.name} maxLength={50}
                                     onChange={(e) => update(i, { name: e.target.value })} />
                             </td>
                             <td>
-                                <input type="number" min="0" step="any" value={l.current}
+                                <input aria-label={`Load ${i + 1} current (A)`} type="number" min="0" step="any" value={l.current}
                                     onChange={(e) => update(i, { current: e.target.value })} />
                             </td>
                             <td>
-                                <input type="number" min="0" max="1" step="0.01" value={l.cos}
+                                <input aria-label={`Load ${i + 1} power factor`} type="number" min="0" max="1" step="0.01" value={l.cos}
                                     onChange={(e) => update(i, { cos: e.target.value })} />
                             </td>
                             <td>
-                                <select value={l.connection} onChange={(e) => update(i, { connection: e.target.value })}>
+                                <select aria-label={`Load ${i + 1} connection`} value={l.connection} onChange={(e) => update(i, { connection: e.target.value })}>
                                     {CONNECTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
                                 </select>
                             </td>
                             <td style={{ textAlign: "center" }}>
-                                <input type="checkbox" checked={l.leading}
+                                <input aria-label={`Load ${i + 1} leading`} type="checkbox" checked={l.leading}
                                     onChange={(e) => update(i, { leading: e.target.checked })} />
                             </td>
                             <td>
-                                <button className="btn remove" title="Remove load"
+                                <button aria-label={`Remove load ${i + 1}`} className="btn remove" title="Remove load"
                                     onClick={() => setLoads(loads.filter((_, idx) => idx !== i))}>X</button>
                             </td>
                         </tr>

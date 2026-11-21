@@ -45,13 +45,13 @@ export default function App() {
                 <p>Phasor sum of load currents per phase, neutral current and busbar Ib (most loaded phase)</p>
             </header>
             <main className="grid">
-                <section className="card">
-                    <h2>Loads</h2>
+                <section className="card" aria-labelledby="loads-heading">
+                    <h2 id="loads-heading">Loads</h2>
                     <LoadsForm loads={loads} setLoads={setLoads} />
                 </section>
-                <section className="card">
-                    <h2>Results</h2>
-                    {error && <p className="error">{error}</p>}
+                <section className="card" aria-labelledby="results-heading">
+                    <h2 id="results-heading">Results</h2>
+                    {error && <p className="error" role="alert">{error}</p>}
                     {data && <Results data={data} />}
                 </section>
             </main>
