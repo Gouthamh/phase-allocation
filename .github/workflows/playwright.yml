@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
   group: phase-tests-${{ github.workflow }}-${{ github.ref }}
@@ -94,6 +95,22 @@ jobs:
           else
             npm run test:regression
           fi
+      - name: Publish tested Docker images
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          echo "$GHCR_TOKEN" | docker login ghcr.io \
+            --username "$OWNER" --password-stdin
+          owner_lower="${OWNER,,}"
+          docker tag busbar-frontend:latest \
+            "ghcr.io/$owner_lower/busbar-frontend:sha-$COMMIT_SHA"
+          docker tag busbar-busbar-api:latest \
+            "ghcr.io/$owner_lower/busbar-api:sha-$COMMIT_SHA"
+          docker push "ghcr.io/$owner_lower/busbar-frontend:sha-$COMMIT_SHA"
+          docker push "ghcr.io/$owner_lower/busbar-api:sha-$COMMIT_SHA"
       - name: Capture application logs
         if: ${{ always() && steps.application.outcome != 'skipped' }}
         run: |

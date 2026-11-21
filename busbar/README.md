@@ -154,8 +154,19 @@ GitHub does not discover workflows under `busbar/.github`.
 
 - Pull requests targeting `main`, `develop`, or `release/**` run smoke tests.
 - Pushes to those branches run the full regression suite.
+- After successful tests, a push to `main` publishes the tested frontend and
+  API images to GHCR as `ghcr.io/<owner>/busbar-frontend:sha-<commit>` and
+  `ghcr.io/<owner>/busbar-api:sha-<commit>`. The owner is lowercase.
 - Nightly runs at 02:00 UTC run full regression on the default branch.
 - Manual runs let you choose smoke or regression.
+
+Publishing uses the workflow's `GITHUB_TOKEN` with `packages: write`; no
+registry password needs to be stored in the repository. Pull requests,
+scheduled runs, and manual runs do not publish. The gateway uses an upstream
+image and is not published. Packages can initially be private, and repository
+or organization policies must allow package writes. If a push fails, the job
+fails; the two image pushes are separate, so one may already have succeeded.
+This publishes images only: the existing Compose setup still builds locally.
 
 The workflow checks out the repository, sets up Node.js/Python, restores
 dependencies with `npm ci`, installs the suite's browsers, validates lint/types/
